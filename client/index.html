@@ -1,0 +1,935 @@
+<!--
+	TO DO:
+		ORBITING SYSTEM
+		MINING SYSTEM
+		CHAT SYSTEM - 1 / 3?
+		NOTIFICATION SYSTEM
+
+  -->
+<html>
+	<head>
+		<title> Skeleton Gamemode </title>
+		<style>
+
+		@font-face {
+		    font-family: exan;
+		    src: url(client/fonts/Exan-Regular.ttf);
+		}
+		html {
+			padding: 0;
+			margin: 0;
+		}
+		body {
+			padding: 0;
+			margin: 0;
+			overflow: hidden;
+		}
+
+		canvas {
+			background-color: black;
+		}
+		img {
+			display: none;
+		}
+
+		#options {
+			width: 100px;
+			height: 100px;
+			background-color: black;
+			opacity: 0.6;
+			border-radius: 1px;
+			display: block;
+			position: absolute;
+			bottom: 0;
+			float: right;
+			border-left: 2px solid grey;
+			border-top: 2px solid grey;
+			z-index: 10;
+		}
+
+		li {
+			background-image: url(client/img/miner.png);
+			background-size: cover;
+			display: inline-block;
+			margin-right: 20px;
+			margin-top: 5px;
+			opacity: 0;
+			width: 50px;
+			height: 50px;
+		}
+
+		#spawn_options {
+			position: absolute;
+			height: 100px;
+			width: 300px;
+			background-color: black;
+			opacity: 0.6;
+			border-top: 2px solid grey;
+			border-left: 2px solid grey;
+			border-radius: 1px;
+			bottom: 0;
+			z-index: 0;
+			float: right;
+			display: block;
+		}
+
+		ul {
+			list-style: none;
+			display: inline-block;
+		}
+
+		#Objects_Interface {
+			font-family: 'exan';
+			text-align: center;
+			width: 300px;
+			position: absolute;
+			right: 0;
+			background-color: black;
+			color: white;
+			border: 1px solid grey;
+		}
+		#Objects_Interface table {
+			text-align: center;
+			font-size: 10px;
+			color: white;
+		}
+		#Objects_Interface td {
+			border-right: 1px solid grey;
+			cursor: pointer;
+		}
+		#Objects_Interface tr {
+			transition: all 0.3s ease;
+		}
+		#Objects_Interface tr:hover {
+			background-color: #42d1f4;
+		}
+		#Objects_Interface th {
+			border: 1px solid grey;
+
+		}
+
+		</style>
+		<link rel="stylesheet" type="text/css" href="client/css/animate.css" />
+		<script src="https://cdn.socket.io/socket.io-1.4.5.js"></script>
+		<script src="client/js/jquery.min.js"></script>
+		<img src="client/img/spacestation.png" id="SpaceStation" />
+		<img src="client/img/jump_gate.png" id="JumpGate" />
+		<img src="client/img/universal_freighter.png" id="UniversalFreighter" />
+		<img src="client/img/Asteroid/Asteroid1.png" id="Asteroid1_1" />
+		<img src="client/img/Asteroid/Asteroid2.png" id="Asteroid1_2" />
+		<audio src="client/sounds/buttonPress1.wav" id="ButtonPressSound"> </audio>
+		<audio src="client/sounds/Selection.wav" id="SelectionSound"> </audio>
+		<audio src="client/sounds/Selection_Error.wav" id="SelectionErrorSound"> </audio>
+	</head>
+
+
+	<body>
+		<!-- HTML INTERFACE ELEMENTS -->
+
+		<div id="Objects_Interface">
+			<h3> Nearby Landmarks </h3>
+			<hr style="border-color: grey"/>
+			<table>
+				<thead>
+					<th style="width: 1000px;">Location</th>
+					<th>Distance</th>
+					<th>Faction</th>
+				</thead>
+
+				<tbody id="Objects_List">
+
+				</tbody>
+
+			</table>
+		</div>
+
+		<div id="spawn_options">
+			<ul>
+				<li id="SpawnMinerButton"></li>
+				<li id="SpawnFighterButton"></li>
+			</ul>
+		</div>
+		<div id="options">
+
+		</div>
+
+		<canvas id="ctx" width="1920" height="1080" style="border: 1px solid #000000;"></canvas>
+		<script>
+			var canvas = document.getElementById('ctx')
+			var ctx = canvas.getContext('2d');
+			ctx.font = '30px Arial';
+
+			var WIDTH = window.screen.availWidth;
+			var HEIGHT = window.screen.availHeight;
+
+			canvas.width = WIDTH;
+			canvas.height = HEIGHT;
+
+			var socket = io();
+
+			//Key Logistics
+			var ShiftPressed = false;
+			var MouseDown = false;
+
+			//Sounds
+			var ButtonPressSound;
+			var SelectionSound;
+			var SelectionErrorSound;
+
+			var localId, localData;
+
+			//Images
+			var SpaceStation;
+			var JumpGate;
+			var UniversalFreighter;
+			var Asteroid1_1, Asteroid1_2;
+
+			//Html elements
+			var OptionsPane;
+			var SpawnOptions;
+			var SpawnOptionsOpen = false;
+
+			// Spawn Buttons
+			var SpawnMinerButton;
+			var SpawnFighterButton;
+
+			// GAME LISTS
+			var GATES = [];
+			var STARS = [];
+			var SUNS = [];
+			var ASTEROID_BELTS = [];
+
+
+			//COLOR DESIGNATIONS
+
+
+
+			//Timing
+			var dt = 0;
+			var now;
+			var startTime = Date.now();
+			var gameTime = 0;
+
+			// Other OBJECTS
+			var Camera = {
+				x: WIDTH/2,
+				y: HEIGHT/2,
+				lx: WIDTH/2,
+				ly: HEIGHT/2,
+				tx: 0,
+				ty: 0,
+				panning: false,
+				panStartTime: 0,
+				panTime: 0,
+				target: "none"
+			};
+			Camera.normalize = function() {
+				this.lx = this.x;
+				this.ly = this.y;
+			}
+			Camera.tick = function() {
+				if(this.panning) {
+					this.panTime = dt - this.panStartTime;
+					this.x = Math.easeOutExpo(this.panTime, this.lx, this.tx - this.lx, 10);
+					this.y = Math.easeOutExpo(this.panTime, this.ly, this.ty - this.ly, 10);
+					if(this.lx >= this.tx) {
+						if(this.ly <= this.ty) {
+							if(this.x >= this.tx-1) {
+								if(this.y >= this.ty-1) {
+									this.panning = false;
+									console.log("1");
+									Camera.normalize();
+								}
+							}
+						} else {
+							if(this.x <= this.tx+1) {
+								if(this.y <= this.ty+1) {
+									this.panning = false;
+									console.log("cunt");
+									Camera.normalize();
+								}
+							}
+						}
+					} else {
+						if(this.ly >= this.ty) {
+							if(this.x <= this.tx+1) {
+								if(this.y <= this.ty+1) {
+									this.panning = false;
+									console.log("2");
+									Camera.normalize();
+								}
+							}
+						} else {
+							if(this.x >= this.tx-1) {
+								if(this.y >= this.ty-1) {
+									this.panning = false;
+									console.log("2");
+									Camera.normalize();
+								}
+							}
+						}
+					}
+				}
+
+				if(this.target != "none") {
+					this.centerOnPlayer();
+				}
+			}
+
+			Camera.centerOnPlayer = function() {
+				this.x = -(localData.x + localData.width/2) + canvas.width/2;
+				this.y = -(localData.y + localData.height/2) + canvas.height/2;
+			}
+			var Mouse = {
+				x: 0,
+				y: 0,
+				cx: "NA",
+				cy: "NA"
+			};
+
+
+
+			// EVENT LISTENERS
+			///////////////////
+
+			document.addEventListener('DOMContentLoaded', onContentLoad, false);
+			$(document).bind('contextmenu', function() {
+				return false;
+			});
+
+			document.addEventListener('mousedown', onMouseDown, false);
+			document.addEventListener('mouseup', onMouseUp, false);
+
+			document.addEventListener('mousemove', onMouseMove, false);
+
+			function onMouseMove(e) {
+				Mouse.x = e.pageX;
+				Mouse.y = e.pageY;
+			}
+
+			function onMouseUp() {
+				MouseDown = false;
+				Camera.lx = Camera.x;
+				Camera.ly = Camera.y;
+			}
+
+			function onMouseDown(e) {
+				if(!MouseDown) {
+
+					Mouse.cx = e.pageX;
+					Mouse.cy = e.pageY;
+					MouseDown = true;
+				}
+				if(Camera.panning) {
+					Camera.panning = false;
+				}
+			}
+
+			function PlaySelectionSound(bool) {
+				if(bool) {
+					SelectionSound.play();
+				} else {
+					SelectionErrorSound.play();
+				}
+			}
+
+			function onContentLoad() {
+
+				//Audio
+				ButtonPressSound = document.getElementById('ButtonPressSound');
+				ButtonPressSound.volume = 0.3;
+				SelectionSound = document.getElementById('SelectionSound');
+				SelectionErrorSound = document.getElementById('SelectionErrorSound');
+				SelectionSound.volume = 0.2;
+				SelectionErrorSound.volume = 0.2;
+
+				//
+				SpaceStation = document.getElementById('SpaceStation');
+				JumpGate = document.getElementById('JumpGate');
+				UniversalFreighter = document.getElementById('UniversalFreighter');
+				Asteroid1_1 = document.getElementById('Asteroid1_1');
+				Asteroid1_2 = document.getElementById('Asteroid1_2');
+
+
+
+				OptionsPane = document.getElementById('options');
+				OptionsPane.addEventListener('click', function() {
+
+					if(SpawnOptionsOpen) {
+						this.style.borderColor = "grey";
+						document.getElementById('spawn_options').style.borderColor = "grey";
+						SpawnOptionsOpen = false;
+						setTimeout(function() {
+							$('#spawn_options').animate({left: WIDTH - 100 + "px"});
+						}, 200);
+						setTimeout(function() {
+							$('#SpawnFighterButton').animate({opacity: 0});
+						}, 50);
+						$('#SpawnMinerButton').animate({opacity: 0});
+
+					} else {
+						this.style.borderColor = "#42d1f4";
+						document.getElementById('spawn_options').style.borderColor = "#42d1f4";
+						ButtonPressSound.play();
+						SpawnOptionsOpen = true;
+						$('#spawn_options').animate({left: WIDTH - 400 + "px"});
+
+
+						setTimeout(function() {
+							$('#SpawnMinerButton').animate({opacity: 1});
+
+						}, 500);
+						setTimeout(function() {
+							$('#SpawnFighterButton').animate({opacity: 1});
+
+						}, 600);
+
+					}
+				}, false);
+				OptionsPane.style.left = (WIDTH - 100) + "px";
+
+				SpawnOptions = document.getElementById('spawn_options');
+				SpawnOptions.style.left = (WIDTH - 100) + "px";
+
+
+				SpawnMinerButton = document.getElementById('SpawnMinerButton');
+				SpawnFighterButton = document.getElementById('SpawnFighterButton');
+
+
+
+			}
+
+			// SOCKET RECEPTION
+			/////////////////////
+
+			socket.on('newPlayerInfo', function(data) {
+				localData = data;
+			});
+
+			socket.on('asteroids', function(data) {
+				ASTEROID_BELTS = data;
+			});
+
+			socket.on('suns', function(data) {
+				SUNS = data;
+			});
+
+			socket.on('receivedConnect', function(data) {
+				localId = data.id;
+				console.log("Local Id Received! " + localId );
+			});
+
+			socket.on("localData", function(data) {
+				localData = data;
+			});
+
+			socket.on('beginGame', function(data) {
+				Camera.x = Camera.x - (localData.x + localData.width/2);
+				Camera.y = Camera.y - (localData.y + localData.height/2);
+				Camera.normalize();
+				Camera.target = localData;
+				console.log("Camera set!");
+
+
+
+				for(var i = 0; i < 50; i++) {
+					var newStar = new Star();
+					STARS.push(newStar);
+				}
+
+				//LoadNearbyPlaces
+				RefreshNearbyLocations();
+			});
+
+			function RefreshNearbyLocations() {
+				for(var i in GATES) {
+					var gate = GATES[i];
+					var dx = (localData.x - gate.x);
+					var dy = (localData.y - gate.y);
+					var mag = Math.sqrt((dx*dx)+(dy*dy));
+					var newListRow = $("<tr id=" + gate.id + "></tr>");
+					var newListName = $("<td>" + gate.name + "</td>");
+					var newListDistance = $("<td id=" + gate.id + "_dist>" + Math.floor(mag) + " Km</td>");
+					var newListFaction = $("<td>" + gate.sector + "</td>");
+					newListName.on('click', function() {
+						var e = $(this).parent().attr('id');
+						onListItemClick(e);
+					});
+					newListRow.append(newListName);
+					newListRow.append(newListDistance);
+					newListRow.append(newListFaction);
+					$("#Objects_List").append(newListRow);
+					console.log("APPENDED");
+				}
+			}
+
+			function onListItemClick(e) {
+
+				var Location_ID = e;
+				//if(Location_ID.substring(4) == localData.sector) {
+					if(Location_ID.substring(0, 2) == "jg" ){
+						for(var i in GATES) {
+							var gate = GATES[i];
+							if(gate.id == e) {
+								PlaySelectionSound(true);
+								socket.emit('targetChangeLocation', gate.id);
+							}
+						}
+					}
+				//} else {
+					//PlaySelectionSound(false);
+				//}
+			}
+
+			socket.on('newPlayerPositions', function(data) {
+				PLAYER_LIST = data;
+			});
+			socket.on('stars', function(data) {
+				STARS = data;
+				console.log("Stars Received!");
+			});
+
+			socket.on('jump_gates', function(data) {
+				GATES = data;
+				console.log("Gates Received!");
+			});
+
+			// END SOCKET RECEPTION
+			////////////////////////
+			var ticker = 0;
+			function gameLoop() {
+
+				now = Date.now();
+				gameTime = (now - startTime);
+				dt = gameTime / 1000;
+
+				tick();
+				render();
+				//Loop through again
+				requestAnimationFrame(gameLoop);
+			}
+
+			function UpdateHtmlGui() {
+				$("td").each(function() {
+				    var id = $(this).attr("id");
+						for(var i in GATES) {
+							if(id == GATES[i].id + "_dist") {
+								this.innerHTML = Math.floor(Distance(localData, GATES[i])) + " KM";
+							}
+						}
+				    // compare id to what you want
+				});
+			}
+
+			function tick() {
+				//Update html gui
+				UpdateHtmlGui();
+
+				Camera.tick();
+				for(var i in STARS) {
+					STARS[i].Update();
+				}
+				/*
+				if(MouseDown) {
+					Camera.x = Camera.lx - (Mouse.cx - Mouse.x);
+					Camera.y = Camera.ly - (Mouse.cy - Mouse.y);
+				}
+				*/
+			}
+
+			function render() {
+				ctx.clearRect(0,0,WIDTH,HEIGHT);
+				if(localData.lerping.location.status) {
+					ctx.fillStyle = 'rgba(0,0,0, .45)';
+					ctx.fillRect(0, 0, canvas.width, canvas.height);
+				}
+				//Stars
+				for(var i in STARS) {
+					var star = STARS[i];
+					ctx.fillStyle = "white";
+					Ellipse(star.x + Camera.x, star.y + Camera.y, star.diameter);
+				}
+				renderWorldObjects();
+
+				renderPlayers();
+
+				//Self
+				renderSelf();
+
+				renderHUD();
+
+
+			}
+
+			function renderWorldObjects() {
+				for(var i in GATES) {
+					var gate = GATES[i];
+					ctx.beginPath();
+					ctx.drawImage(JumpGate, gate.x - gate.width/2 + Camera.x, gate.y - gate.height/2 + Camera.y, gate.width, gate.height);
+					ctx.closePath();
+
+				}
+
+				//SUNS
+				for(var i in  SUNS) {
+
+					var sun = SUNS[i];
+
+					//Gradient Color...
+					var sunGradientInner=ctx.createRadialGradient(sun.x + Camera.x, sun.y + Camera.y , sun.diameter/2,sun.x + Camera.x, sun.y + Camera.y , sun.diameter);
+					sunGradientInner.addColorStop(0,"yellow");
+					sunGradientInner.addColorStop(1,"transparent");
+
+
+					ctx.beginPath();
+					ctx.fillStyle = sunGradientInner;
+					ctx.arc(sun.x + Camera.x, sun.y + Camera.y, sun.diameter, 0, Math.PI*2);
+					ctx.fill();
+					ctx.closePath();
+				}
+
+				//Asteroid Belts
+
+				for(var i in ASTEROID_BELTS) {
+					var belt = ASTEROID_BELTS[i];
+					for(var j in belt.Asteroids) {
+						var asteroid = belt.Asteroids[j];
+						ctx.beginPath();
+						ctx.save();
+						ctx.translate(asteroid.x + asteroid.width + Camera.x, asteroid.y + asteroid.height + Camera.y);
+						ctx.rotate(asteroid.rotation);
+						ctx.translate(-(asteroid.x + asteroid.width + Camera.x), -(asteroid.y + asteroid.height + Camera.y))
+						if(asteroid.type == 0) {
+							ctx.drawImage(Asteroid1_1, asteroid.x + asteroid.width/2 + Camera.x, asteroid.y + asteroid.height/2 + Camera.y, asteroid.width, asteroid.height);
+						} else if(asteroid.type == 1) {
+							ctx.drawImage(Asteroid1_2, asteroid.x + asteroid.width/2 + Camera.x, asteroid.y + asteroid.height/2 + Camera.y, asteroid.width, asteroid.height);
+						}
+						ctx.restore();
+						ctx.closePath();
+					}
+				}
+			}
+
+			function renderHUD() {
+				ctx.beginPath();
+				ctx.fillStyle = "red";
+				ctx.arc(GATES[0].x + Camera.x, GATES[0].y + Camera.y, 10, 0, Math.PI*2);
+				ctx.fill();
+				ctx.closePath();
+				//CIRCULAR BARS
+				ctx.beginPath();
+				ctx.fillStyle = "black";
+				ctx.arc(WIDTH/2, HEIGHT-70, 75, 0, Math.PI*2);
+				ctx.fill();
+				ctx.closePath();
+
+				ctx.beginPath();
+
+				ctx.save();
+				ctx.translate(WIDTH/2, HEIGHT-70);
+				ctx.rotate(Math.PI);
+				ctx.translate(-(WIDTH/2), -(HEIGHT-70));
+
+				ctx.lineWidth = '10';
+				ctx.strokeStyle = "grey";
+				ctx.setLineDash([1,2]);
+				var val = Map(Math.sin(localData.rotation*2), -1, 1, 0, 1);
+				//var val = Math.PI*2;
+				ctx.arc(WIDTH/2, HEIGHT - 70, 70, 0, Math.PI * val);
+				ctx.stroke();
+				ctx.restore();
+				ctx.lineWidth = '1';
+				ctx.closePath();
+
+				ctx.beginPath();
+				ctx.lineWidth = '8';
+				ctx.setLineDash([1,2]);
+				ctx.strokeStyle = "#6B9BA7";
+				ctx.arc(WIDTH/2, HEIGHT-70, 60, 0, Math.PI*2);
+				ctx.stroke();
+				ctx.closePath();
+
+				ctx.beginPath();
+				ctx.lineWidth = '8';
+				ctx.strokeStyle = "#42d1f4";
+				ctx.arc(WIDTH/2, HEIGHT-70, 50, 0, Math.PI*2);
+				ctx.stroke();
+				ctx.closePath();
+
+				ctx.setLineDash([0,0]);
+
+				ctx.beginPath();
+				ctx.arc(WIDTH/2, HEIGHT-70, 75, 0, Math.PI*2);
+				ctx.strokeStyle = "grey";
+				ctx.lineWidth = 1;
+
+				ctx.stroke();
+				ctx.closePath();
+
+				//END BARS
+
+				//TEXT
+				ctx.beginPath();
+				ctx.font = "10px exan";
+				ctx.fillStyle = "white";
+				ctx.fillText("Shield: " + localData.shield, WIDTH/2 - 31, HEIGHT - 75);
+				ctx.font = "9px exan";
+				ctx.fillText("Health: " + localData.health, WIDTH/2 - 28, HEIGHT - 90);
+				ctx.closePath();
+
+				//Other
+
+				ctx.beginPath();
+				ctx.strokeStyle = "grey";
+				ctx.lineWidth = 1;
+				ctx.arc(120, HEIGHT-180, 70, 0, Math.PI*2);
+				ctx.stroke();
+				ctx.fillStyle = "black";
+				ctx.fill();
+				ctx.closePath();
+				ctx.beginPath();
+				ctx.strokeStyle = "grey";
+				ctx.lineWidth = 1;
+				ctx.arc(120, HEIGHT-180, 90, 0, Math.PI*2);
+				ctx.stroke();
+				ctx.closePath();
+
+
+
+
+				ctx.beginPath();
+				var grd=ctx.createLinearGradient(10,27, 220,0);
+				grd.addColorStop(0,"transparent");
+				grd.addColorStop(1,"white");
+				ctx.save();
+				ctx.translate(120, HEIGHT-180);
+				ctx.rotate(-localData.rotation*5);
+				ctx.translate(-120, -(HEIGHT-180));
+
+
+				ctx.fillStyle = grd;
+				ctx.arc(120, HEIGHT - 180, 70, 0, Math.PI);
+				ctx.fill();
+				ctx.restore();
+				ctx.closePath();
+
+
+			}
+
+			Math.easeinOutExpo = function (t, b, c, d) {
+				return c * Math.sin(t/d * (Math.PI/2)) + b;
+			};
+
+			Math.easeOutExpo = function (t, b, c, d) {
+				t /= d/2;
+				if (t < 1) return c/2 * Math.pow( 2, 10 * (t - 1) ) + b;
+				t--;
+				return c/2 * ( -Math.pow( 2, -10 * t) + 2 ) + b;
+			};
+
+
+			function renderSelf() {
+
+				//var val = Math.easeOutExpo(dt, 10, 300, 100);
+				//console.log(val);
+
+				if(localData) {
+					ctx.beginPath();
+					ctx.fillStyle = "white";
+					ctx.fillText("x: " + Camera.x + ", y: " + Camera.y, 100, 100);
+					//console.log(Camera.x, Camera.y);
+					ctx.closePath();
+
+					ctx.beginPath();
+					ctx.save();
+					ctx.translate(localData.x + localData.width/2 + Camera.x, localData.y + localData.height/2 + Camera.y);
+					ctx.rotate(localData.rotation);
+					ctx.translate(-(localData.x + localData.width/2 + Camera.x), -(localData.y + localData.height/2 + Camera.y));
+					ctx.drawImage(UniversalFreighter, localData.x + Camera.x, localData.y + Camera.y, localData.width, localData.height);
+					ctx.restore();
+					ctx.closePath();
+
+				}
+			}
+
+			function renderPlayers() {
+				for(var i in PLAYER_LIST) {
+
+					var player = PLAYER_LIST[i];
+					if(player.id != localData.id) {
+						ctx.beginPath();
+						ctx.save();
+						ctx.translate(player.x + player.width/2 + Camera.x, player.y + player.height/2 + Camera.y);
+						ctx.rotate(player.rotation);
+						ctx.translate(-(player.x + player.width/2 + Camera.x), -(player.y + player.height/2 + Camera.y));
+						ctx.drawImage(UniversalFreighter, player.x + Camera.x, player.y + Camera.y, player.width, player.height);
+						ctx.restore();
+						ctx.closePath();
+					}
+				}
+			}
+
+
+
+
+			function IClick(e) {
+				var x = e.pageX - 8;
+				var y = e.pageY - 7;
+				console.log("clicked at: " + x + ", " + y);
+
+				var xIndex = Math.floor(x/32);
+				var yIndex = Math.floor(y/32);
+
+			}
+			//canvas.addEventListener('click', IClick, false);
+
+			/* Default WASD Movement style */
+			document.onkeydown = function(event) {
+				if(event.keyCode == 68) { //d
+					socket.emit('keyPress',{inputId:'right', state: true});
+				}
+				if(event.keyCode == 83) { //s
+					socket.emit('keyPress',{inputId:'down', state: true});
+				}
+				if(event.keyCode == 65) {// a
+					socket.emit('keyPress',{inputId:'left', state: true});
+				}
+				if(event.keyCode == 87) {//w
+					socket.emit('keyPress',{inputId:'up', state: true});
+				}
+
+				if(event.keyCode == 16) {//ShiftPressed
+					if(!ShiftPressed) {
+						ShiftPressed = true;
+						/*
+						Camera.panning = true;
+						Camera.tx = -(localData.x + localData.width/2) + WIDTH/2;
+						Camera.ty = -(localData.y + localData.height/2) + HEIGHT/2;
+						Camera.lx = Camera.x;
+						Camera.ly = Camera.y;
+						Camera.panStartTime = dt;
+						*/
+						socket.emit('lerpLocation');
+					}
+				}
+
+				if(event.keyCode == 38) { //up arrow
+					Camera.y += 10;
+					Camera.normalize();
+				}
+				if(event.keyCode == 39) { //right arrow
+					Camera.x -= 10;
+					Camera.normalize();
+				}
+				if(event.keyCode == 37) { //left arrow
+					Camera.x += 10;
+					Camera.normalize();
+				}
+				if(event.keyCode == 40) { //up arrow
+					Camera.y -= 10;
+					Camera.normalize();
+				}
+
+			};
+
+			document.onkeyup = function(event) {
+				if(event.keyCode == 68) { //d
+					socket.emit('keyPress',{inputId:'right', state: false});
+				}
+				if(event.keyCode == 83) { //s
+					socket.emit('keyPress',{inputId:'down', state: false});
+				}
+				if(event.keyCode == 65) {// a
+					socket.emit('keyPress',{inputId:'left', state: false});
+				}
+				if(event.keyCode == 87) {//w
+					socket.emit('keyPress',{inputId:'up', state: false});
+				}
+
+				if(event.keyCode == 16) {//ShiftPressed
+					ShiftPressed = false;
+				}
+			};
+
+			/* General Functions */
+
+			function Ellipse(x, y, diameter) {
+				ctx.beginPath();
+				ctx.arc(x, y, diameter, 0, Math.PI*2);
+				ctx.fill();
+				ctx.closePath();
+			}
+
+			function DrawImage(src, x, y, w ,h) {
+				ctx.beginPath();
+				ctx.drawImage(src, x, y, w, h);
+				ctx.closePath();
+			}
+
+			/* End General Functions */
+
+			var loop = setInterval(function() {
+				if(localData) {
+					clearInterval(loop);
+					InitializeGame();
+					gameLoop();
+				}
+			}, 500);
+
+			function InitializeGame() {
+
+			}
+			function RandomizeStarX() {
+				return Map(Math.random(), 0, 1, (localData.x + localData.width/2) - canvas.width/2, (localData.x + localData.width/2) + canvas.width/2);
+			}
+			function RandomizeStarY() {
+				return Map(Math.random(), 0, 1, (localData.y + localData.height/2) - canvas.height/2, (localData.y + localData.height/2) + canvas.height/2);
+			}
+
+			var Star = function() {
+				var self = {
+					x: RandomizeStarX(),
+					y: RandomizeStarY(),
+					id: Math.random() + Math.random(),
+					diameter: Map(Math.random(), 0, 1, 0.5, 1.5),
+					color: "#ffffff"
+				};
+
+				self.Update = function() {
+					if(this.x <= -(Camera.x)) {
+						this.x = -(Camera.x) + canvas.width - 1
+					}
+					if(this.x >= -(Camera.x) + canvas.width) {
+						this.x = -(Camera.x);
+					}
+					if(this.y <= -(Camera.y)) {
+						this.y = -(Camera.y) + canvas.height - 1;
+					}
+					if(this.y >= -(Camera.y) + canvas.height) {
+						this.y = -(Camera.y);
+					}
+					for(var i in STARS) {
+						if(this.x == STARS[i].x || this.y == STARS[i].y) {
+							if(this.id != STARS[i].id) {
+								this.x = RandomizeStarX();
+								this.y = RandomizeStarY();
+							}
+						}
+					}
+				}
+
+				return self;
+			}
+
+			function Map(X, A, B, C, D) {
+				return (X-A)/(B-A) * (D-C) + C;
+			}
+			function Distance(player, target) {
+				var dx = player.x - target.x;
+				var dy = player.y - target.y;
+				var mag = Math.sqrt((dx*dx)+(dy*dy));
+				return mag;
+			}
+		</script>
+	</body>
+</html>
