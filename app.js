@@ -131,7 +131,7 @@ var JumpGate = function(sector) {
 
 //Stations
 
-var Stations = function(sector){
+var Station = function(sector, id){
 	for (var i in SUNS){
 		var sun = SUNS[i];
 		var x;
@@ -165,9 +165,9 @@ var Stations = function(sector){
 	return self;
 }
 
-var newStation = new Station('b');
+var newStation = new Station('b', 'b');
 
---> newStation.tick();
+//--> newStation.tick();
 
 //CELESTIAL BODIES
 
